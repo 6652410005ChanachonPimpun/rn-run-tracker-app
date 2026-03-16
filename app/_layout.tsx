@@ -1,3 +1,4 @@
+import { AuthProvider } from "@/context/AuthContext";
 import {
   Kanit_400Regular,
   Kanit_700Bold,
@@ -7,20 +8,7 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 
-export default function RootLayout() {
-  const [fontsLoaded] = useFonts({
-    Kanit_400Regular,
-    Kanit_700Bold,
-  });
-
-  useEffect(() => {
-    SplashScreen.hideAsync();
-  }, [fontsLoaded]);
-
-  if (!fontsLoaded) {
-    return null;
-  }
-
+function RootLayoutNav() {
   return (
     <Stack
       screenOptions={{
@@ -38,9 +26,31 @@ export default function RootLayout() {
       }}
     >
       <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="run" options={{ title: "Run Tracker" }} />
       <Stack.Screen name="add" options={{ title: "เพิ่มรายการวิ่ง" }} />
       <Stack.Screen name="[id]" options={{ title: "รายละเอียดการวิ่ง" }} />
     </Stack>
+  );
+}
+
+export default function RootLayout() {
+  const [fontsLoaded] = useFonts({
+    Kanit_400Regular,
+    Kanit_700Bold,
+  });
+
+  useEffect(() => {
+    SplashScreen.hideAsync();
+  }, [fontsLoaded]);
+
+  if (!fontsLoaded) {
+    return null;
+  }
+
+  return (
+    <AuthProvider>
+      <RootLayoutNav />
+    </AuthProvider>
   );
 }

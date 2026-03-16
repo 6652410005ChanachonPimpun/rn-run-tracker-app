@@ -13,14 +13,22 @@ export default function Run() {
 
   //สร้างฟังก์ชั่นดึงข้อมูลรายการวิ่งจาก supabase
   const fetchRuns = async () => {
-    const { data, error } = await supabase.from("runs").select("*");
-    if (error) {
-      Alert.alert('คำเตือน', 'เกิดข้อผิดพลาดในการดึงข้อมูล');
-      return;
-    }
-    //กำหนดข้อมูลที่ดึงมาให้กับ state
-    setRuns(data as Runstype[]);
-  };
+  // ดึง user ที่ล็อกอินอยู่
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+
+  const { data, error } = await supabase
+    .from("runs")
+    .select("*")
+    .eq("user_id", user.id);
+
+  if (error) {
+    Alert.alert('คำเตือน', 'เกิดข้อผิดพลาดในการดึงข้อมูล');
+    return;
+  }
+
+  setRuns(data as Runstype[]);
+};
 
   //เรียกใช้ฟังก์ชั่นดึงข้อมูล
   useFocusEffect(
@@ -86,7 +94,7 @@ export default function Run() {
 const styles = StyleSheet.create({
   listPadding: {
     padding: 20,
-    paddingBottom: 100, // เว้นที่ให้ FAB
+    paddingBottom: 100,
   },
   card: {
     backgroundColor: '#FFF',
@@ -95,12 +103,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    // Shadow สำหรับ iOS
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
-    // Elevation สำหรับ Android
     elevation: 3,
   },
   cardContent: {

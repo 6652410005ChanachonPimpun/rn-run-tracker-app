@@ -52,44 +52,50 @@ export default function Add() {
 
   //บันทึกข้อมูลที่ป้อนไป supabase
   const handleSaveToSupabase = async () => {
-    //validate location, distance, image
-    if (!location || !distance || !image) {
-      Alert.alert("คำเตือน", "กรุณาป้อนข้อมูลให้ครบ และเลือกรูปภาพด้วย");
-      return;
-    }
+  if (!location || !distance || !image) {
+    Alert.alert("คำเตือน", "กรุณาป้อนข้อมูลให้ครบ และเลือกรูปภาพด้วย");
+    return;
+  }
 
-    //อัพโหลดรูปไปยัง storage ใน supabase
-    let image_url = null; //ตัวแปรเก็บ url รูป
-    const fileName = `img_${Date.now()}.jpg`; // ตั้งชื่อไฟล์ที่จะอัพโหลด
-    const { error: uploadError } = await supabase.storage
-      .from('run_bk')
-      .upload(fileName, decode(base64Image!), {
-        contentType: "image/jpeg",
-      });
+  // ดึง user ที่ล็อกอินอยู่
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    Alert.alert("คำเตือน", "กรุณาล็อกอินก่อน");
+    return;
+  }
 
-    if(uploadError) throw uploadError; //ตรวจสอบการอัพโหลด
-  //เอา url ของรูปที่ storage มากำหนดให้กับตัวแปรเพื่อเอาไปลงตาราง
+  let image_url = null;
+  const fileName = `img_${Date.now()}.jpg`;
+  const { error: uploadError } = await supabase.storage
+    .from('run_bk')
+    .upload(fileName, decode(base64Image!), {
+      contentType: "image/jpeg",
+    });
+
+  if (uploadError) throw uploadError;
+
   image_url = await supabase.storage
     .from('run_bk')
     .getPublicUrl(fileName)
     .data.publicUrl;
-    //บันทึกข้อมูลไปยัง table->database ของ supabase
-    const { error: insertError } = await supabase.from("runs").insert([{
-      location: location,
-      distance: distance,
-      time_of_day: timeOfDay,
-      run_date: new Date().toISOString(). split("T")[0], // เอาแค่ ปี เดือน วัน
-      image_url: image_url
-    },
-  ]);
-    if (insertError) {
-      Alert.alert("คำเตือน", "พบปัญหาในการบันทึกข้อมูล กรุณาลองใหม่");
-      return;
-    }
-    //บันทึกเรียบร้อย แสดงข้อความแจ้ง และกลับไปหน้าหลัก
-    Alert.alert("สําเร็จ", "ข้อมูลถูกบันทึกเรียบร้อยแล้ว");
-    router.back()
-  };
+
+  const { error: insertError } = await supabase.from("runs").insert([{
+    location: location,
+    distance: distance,
+    time_of_day: timeOfDay,
+    run_date: new Date().toISOString().split("T")[0],
+    image_url: image_url,
+    user_id: user.id,
+  }]);
+
+  if (insertError) {
+    Alert.alert("คำเตือน", "พบปัญหาในการบันทึกข้อมูล กรุณาลองใหม่");
+    return;
+  }
+
+  Alert.alert("สําเร็จ", "ข้อมูลถูกบันทึกเรียบร้อยแล้ว");
+  router.back();
+};
 
   return (
     <KeyboardAvoidingView

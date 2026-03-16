@@ -1,9 +1,9 @@
+import { supabase } from "@/service/supabase";
+import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
-
-import { supabase } from "@/service/supabase";
-import { Ionicons } from "@expo/vector-icons";
 
 export default function RunDetail() {
   //ตัวแปรเก็บข้อมูลที่ส่งมา ณ ที่นี้คือ id ผ่าน useLocationSearchParams
@@ -15,6 +15,8 @@ export default function RunDetail() {
   const [timeOfDay, setTimeOfDay] = useState("เช้า");
   const [imageUrl, setImageUrl] = useState("");
   const [updating, setUpdating] = useState(false);
+  const [newImageUri, setNewImageUri] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   useEffect(() => {
     fetchRun();
@@ -35,6 +37,62 @@ export default function RunDetail() {
     setImageUrl(data.image_url);
   };
 
+  // ฟังก์ชั่นเลือกรูปใหม่
+  const handlePickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("ไม่ได้รับสิทธิ์", "กรุณาอนุญาตให้เข้าถึงคลังรูปภาพ");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      setNewImageUri(result.assets[0].uri); // แค่เก็บ uri ไว้ก่อน ยังไม่อัปโหลด
+    }
+  };
+
+  // อัปโหลดรูปใหม่ขึ้น Supabase Storage และลบรูปเก่า
+  const uploadNewImage = async (): Promise<string> => {
+  if (!newImageUri) return imageUrl;
+
+  setUploadingImage(true);
+  try {
+    const ext = newImageUri.split(".").pop()?.toLowerCase() ?? "jpg";
+    const fileName = `run_${Date.now()}.${ext}`;
+    const response = await fetch(newImageUri);
+    const arrayBuffer = await response.arrayBuffer();
+
+    const { error: uploadError } = await supabase.storage
+      .from("run_bk")
+      .upload(fileName, arrayBuffer, {
+        contentType: `image/${ext}`,
+        upsert: false,
+      });
+
+    if (uploadError) throw uploadError;
+
+    const { data: urlData } = supabase.storage
+      .from("run_bk")
+      .getPublicUrl(fileName);
+
+    // ลบรูปเก่า
+    if (imageUrl) {
+      const oldFileName = imageUrl.split("/").pop()!;
+      await supabase.storage.from("run_bk").remove([oldFileName]);
+    }
+
+    return urlData.publicUrl;
+  } finally {
+    setUploadingImage(false);
+  }
+};
+
   //ฟังชั่นแก้ไข
   const handleUpdateRunClick = async () => {
     //ถามให้ชัวว่าจะแก้ไหม
@@ -49,24 +107,38 @@ export default function RunDetail() {
               Alert.alert("คำเตือน", "กรุณาป้อนข้อมูลให้ครบ และเลือกรูปภาพด้วย");
               return;
             }
-            //บันทึกการแก้ไขไปที่ supabase
-            const { error: insertError } = await supabase
-              .from("runs")
-              .update([
-                {
-                  location: location,
-                  distance: distance,
+            setUpdating(true);
+            try {
+              // อัปโหลดรูปใหม่ (ถ้ามี) และรับ URL กลับมา
+              const finalImageUrl = await uploadNewImage();
+
+              const { error: updateError } = await supabase
+                .from("runs")
+                .update({
+                  location,
+                  distance,
                   time_of_day: timeOfDay,
-                },
-              ]).eq("id", id);
-            if (insertError) {Alert.alert("ผลการทำงาน", "แก้ไขรายการวิ่งไม่สําเร็จ"); return; };
-            Alert.alert("ผลการทำงาน", "แก้ไขรายการวิ่งเรียบร้อย");
-            router.back();
+                  image_url: finalImageUrl, // อัปเดต url รูปด้วย
+                })
+                .eq("id", id);
+
+              if (updateError) {
+                Alert.alert("ผลการทำงาน", "แก้ไขรายการวิ่งไม่สําเร็จ");
+                return;
+              }
+
+              Alert.alert("ผลการทำงาน", "แก้ไขรายการวิ่งเรียบร้อย");
+              router.back();
+            } catch (e) {
+              Alert.alert("เกิดข้อผิดพลาด", "ไม่สามารถอัปโหลดรูปภาพได้");
+            } finally {
+              setUpdating(false);
+            }
           }
         },
       ]
-    )
-  }
+    );
+  };
 
   //ฟังก์ชั่นลบ
   const handleDeleteRunClick = async () => {
@@ -96,19 +168,41 @@ export default function RunDetail() {
       ]);
   };
 
+  const displayImage = newImageUri ?? imageUrl;
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* ส่วนแสดงรูปภาพ */}
-      <View style={styles.imageContainer}>
-        {imageUrl ? (
-          <Image source={{ uri: imageUrl }} style={styles.mainImage} resizeMode="cover" />
+      <TouchableOpacity
+        style={styles.imageContainer}
+        onPress={handlePickImage}
+        activeOpacity={0.85}
+      >
+        {displayImage ? (
+          <>
+            <Image source={{ uri: displayImage }} style={styles.mainImage} resizeMode="cover" />
+            {/* กดที่รูป เปลี่ยนรูปได้ */}
+            <View style={styles.imageOverlay}>
+              {uploadingImage
+                ? <ActivityIndicator color="#FFF" size="large" />
+                : (
+                  <>
+                    <Ionicons name="camera-outline" size={28} color="#FFF" />
+                    <Text style={styles.overlayText}>
+                      {newImageUri ? "รูปใหม่ (ยังไม่ได้บันทึก)" : "กดเพื่อเปลี่ยนรูป"}
+                    </Text>
+                  </>
+                )
+              }
+            </View>
+          </>
         ) : (
           <View style={[styles.mainImage, styles.noImage]}>
-            <Ionicons name="image-outline" size={60} color="#DDD" />
-            <Text style={styles.noImageText}>ไม่มีรูปภาพประกอบ</Text>
+            <Ionicons name="camera-outline" size={60} color="#DDD" />
+            <Text style={styles.noImageText}>กดเพื่อเพิ่มรูปภาพ</Text>
           </View>
         )}
-      </View>
+      </TouchableOpacity>
 
       {/* ฟอร์มแก้ไขข้อมูล */}
       <View style={styles.formCard}>
@@ -167,6 +261,34 @@ export default function RunDetail() {
 }
 
 const styles = StyleSheet.create({
+  imageOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    paddingVertical: 8,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  overlayText: { 
+    color: '#FFF', 
+    fontFamily: 'Kanit_400Regular', 
+    fontSize: 14 
+  },
+  formCard: {
+    backgroundColor: '#FFF', 
+    borderTopLeftRadius: 30, 
+    borderTopRightRadius: 30,
+    padding: 24, 
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -5 }, 
+    shadowOpacity: 0.1,
+    shadowRadius: 10, 
+    elevation: 5,
+  },
   container: {
     flex: 1,
     backgroundColor: '#F8F9FA',
@@ -197,19 +319,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Kanit_400Regular',
     color: '#AAA',
     marginTop: 10,
-  },
-  formCard: {
-    backgroundColor: '#FFF',
-    height: '100%',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    marginTop: -30,
-    padding: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -5 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 5,
   },
   label: {
     fontFamily: 'Kanit_700Bold',
